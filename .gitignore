@@ -19,6 +19,9 @@ dist/
 actions-runner/
 runner.log
 
+# K3s Kubeconfig (contains credentials)
+k3s_config.yaml
+
 # OS
 .DS_Store
 Thumbs.db
