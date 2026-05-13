@@ -1,0 +1,108 @@
+---
+- name: Setup Docker Ubuntu Server
+  hosts: servers
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Install Python, sudo and create ubuntu user
+      raw: |
+        apt-get update && apt-get install -y python3 sudo
+        id -u ubuntu &>/dev/null || useradd -m -s /bin/bash ubuntu
+        echo "ubuntu ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+      changed_when: false
+
+    - name: Gather facts now that python is installed
+      setup:
+
+    - name: Remove malformed docker list if exists
+      file:
+        path: /etc/apt/sources.list.d/docker.list
+        state: absent
+
+    # Update system
+    - name: Update apt packages
+      apt:
+        update_cache: yes
+        upgrade: yes
+
+    # Install Docker
+    - name: Install dependencies
+      apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+        state: present
+
+    - name: Add Docker GPG key
+      shell: |
+        install -m 0755 -d /etc/apt/keyrings
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+          -o /etc/apt/keyrings/docker.asc
+        chmod a+r /etc/apt/keyrings/docker.asc
+
+    - name: Add Docker repo
+      apt_repository:
+        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+        filename: docker
+
+    - name: Install Docker
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+        update_cache: yes
+        state: present
+
+    - name: Add ubuntu user to docker group
+      user:
+        name: ubuntu
+        groups: docker
+        append: yes
+
+    - name: Kill any existing k3s and docker processes
+      shell: |
+        pkill -9 k3s || true
+        pkill -9 dockerd || true
+        pkill -9 containerd || true
+      failed_when: false
+
+    - name: Remove all old data
+      file:
+        path: "{{ item }}"
+        state: absent
+      with_items:
+        - /usr/local/bin/k3s
+        - /var/lib/rancher/k3s
+        - /etc/rancher/k3s
+        - /var/run/docker.sock
+        - /var/run/k3s
+
+    # Install k3s (ใช้ v1.26 เสถียรที่สุดสำหรับเคสนี้)
+    - name: Install k3s
+      shell: curl -sfL https://get.k3s.io | INSTALL_K3S_SKIP_ENABLE=true INSTALL_K3S_VERSION=v1.26.15+k3s1 sh -
+
+    # เริ่มการทำงานของ Docker และ K3s แบบ Manual
+    - name: Start Docker Daemon in background
+      shell: "nohup dockerd --storage-driver=vfs > /var/log/dockerd.log 2>&1 &"
+      async: 10
+      poll: 0
+
+    - name: Start k3s server in background
+      shell: "nohup k3s server --write-kubeconfig-mode 644 --docker --snapshotter=native --kubelet-arg=\"cgroup-driver=cgroupfs\" --kube-apiserver-arg=\"feature-gates=APIPriorityAndFairness=false\" > /var/log/k3s.log 2>&1 &"
+      async: 10
+      poll: 0
+
+    - name: Wait for k3s to be ready
+      wait_for:
+        path: /etc/rancher/k3s/k3s.yaml
+        timeout: 60
+
+    - name: Copy kubeconfig for ubuntu user
+      shell: |
+        mkdir -p /home/ubuntu/.kube
+        cp /etc/rancher/k3s/k3s.yaml /home/ubuntu/.kube/config
+        chown ubuntu:ubuntu /home/ubuntu/.kube/config

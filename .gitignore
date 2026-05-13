@@ -1,0 +1,24 @@
+# Terraform
+.terraform/
+terraform.tfstate
+terraform.tfstate.backup
+*.exe
+
+# AWS CLI installer
+awscliv2.zip
+aws/
+
+# Node
+node_modules/
+dist/
+
+# Environment
+.env
+
+# GitHub Runner
+actions-runner/
+runner.log
+
+# OS
+.DS_Store
+Thumbs.db

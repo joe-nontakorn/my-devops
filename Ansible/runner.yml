@@ -1,0 +1,47 @@
+---
+- name: Setup GitHub Self-hosted Runner
+  hosts: servers
+  become: true
+  vars:
+    runner_user: ubuntu
+    runner_dir: /home/ubuntu/actions-runner
+    repo_url: "https://github.com/joe-nontakorn/my-devops"
+    runner_token: "A556LHH4ODD43HHLP4I4V3LKAQYCW"
+
+  tasks:
+    - name: Create runner directory
+      file:
+        path: "{{ runner_dir }}"
+        state: directory
+        owner: "{{ runner_user }}"
+        group: "{{ runner_user }}"
+
+    - name: Check if runner is already downloaded
+      stat:
+        path: "{{ runner_dir }}/config.sh"
+      register: runner_exists
+
+    - name: Download and extract runner
+      become_user: "{{ runner_user }}"
+      shell: |
+        cd {{ runner_dir }}
+        curl -o actions-runner-linux-x64-2.316.1.tar.gz -L https://github.com/actions/runner/releases/download/v2.316.1/actions-runner-linux-x64-2.316.1.tar.gz
+        tar xzf ./actions-runner-linux-x64-2.316.1.tar.gz
+      when: not runner_exists.stat.exists
+
+    - name: Install runner dependencies
+      shell: "{{ runner_dir }}/bin/installdependencies.sh"
+
+    - name: Configure runner
+      become_user: "{{ runner_user }}"
+      shell: |
+        cd {{ runner_dir }}
+        ./config.sh --url {{ repo_url }} --token {{ runner_token }} --name my-ubuntu-runner --unattended --replace
+      when: not runner_exists.stat.exists
+      failed_when: false
+
+    - name: Start runner in background
+      become_user: "{{ runner_user }}"
+      shell: "nohup {{ runner_dir }}/run.sh > {{ runner_dir }}/runner.log 2>&1 &"
+      async: 10
+      poll: 0
